@@ -1,18 +1,12 @@
-using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
-
-public class EEnemyState : MonoBehaviour
+namespace Game
 {
-    // Start is called before the first frame update
-    void Start()
+    public enum EEnemyState
     {
-        
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        
+        Unknown = 0,
+        Idle = 1,
+        Jump = 2,
+        Attack = 3,
+        Hit = 4,
+        Die = 5,
     }
 }
