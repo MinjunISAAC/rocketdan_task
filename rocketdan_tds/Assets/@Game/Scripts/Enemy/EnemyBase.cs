@@ -29,13 +29,18 @@ namespace Game
         [SerializeField] protected LayerMask _groundLayerMask = -1;
         [SerializeField] protected float _groundCheckDistance = 0.5f;
 
+        [Header("4. 공격 설정")]
+        [SerializeField] protected float _attackCooldown = 2.0f;
+
         [Header("4. 애니메이션 설정")]
         [SerializeField] protected Animator _animator = null;
 
         [Header("5. 레이 캐스트 설정")]
         [SerializeField] protected float _raycastRange = 0.75f;
         [SerializeField] protected float _raycastHeight = 0.5f;
-
+        [SerializeField] protected float _attackRaycastRange = 1.0f;
+        [SerializeField] protected float _attackRaycastHeight = 0.3f;
+        [SerializeField] protected float _attackRaycastAngle = 0f; // -45도 ~ 45도
 
         // --------------------------------------------------
         // Variables
@@ -47,6 +52,10 @@ namespace Game
         private const string ANIM_DIE = "Die";
 
         private const float JUMP_COOLDOWN_TIME = 0.5f;
+        private const int MAX_LAYER_INDEX = 3;
+        
+        private EEnemyType _enemyType = EEnemyType.Unknown;
+        private int _layerIndex = 0;
 
         protected EEnemyState _currState = EEnemyState.Unknown;
         protected EEnemyState _prevState = EEnemyState.Unknown;
@@ -57,6 +66,9 @@ namespace Game
         protected bool _hasObject = false;
         protected bool _hasCapsuleCollider = false;
         protected float _colliderHeight = 0f;
+        
+        protected RaycastHit2D _attackRaycastHit;
+        protected bool _hasAttackTarget = false;
 
         protected bool _isJumping = false;
         protected float _jumpStartTime = 0f;
@@ -66,6 +78,9 @@ namespace Game
 
         protected float _jumpTime = 0f;
         protected bool _isJumpDelayed = false;
+        
+        protected float _attackTime = 0f;
+        protected bool _isAttackDelayed = false;
 
         // --------------------------------------------------
         // Properties
@@ -84,7 +99,9 @@ namespace Game
         protected virtual void Update()
         {
             CheckForwardObject();
+            CheckAttackTarget();
             CheckJumpReady();
+            CheckAttackReady();
         }
 
         protected virtual void OnDisable()
@@ -100,6 +117,94 @@ namespace Game
         // --------------------------------------------------
         // Method - Normal
         // --------------------------------------------------
+        #region [Spawn]
+        public void Spawn(EEnemyType enemyType, int layerIndex, Transform spawnPosition, Transform enemyParent)
+        {
+            _enemyType = enemyType;
+            _layerIndex = layerIndex;
+
+            SetObjectLayer(layerIndex);
+            SetGroundLayerMask(layerIndex);
+            SetRigidbodyLayer(layerIndex);
+            SetSpriteRendererOrder(layerIndex);
+
+            transform.position = new Vector3(spawnPosition.position.x, spawnPosition.position.y, layerIndex);
+            transform.rotation = spawnPosition.rotation;
+
+            transform.SetParent(enemyParent);
+        }
+
+        private void SetObjectLayer(int layerIndex)
+        {
+            var layerName = $"EnemyLine_{layerIndex}";
+            var layerNumber = LayerMask.NameToLayer(layerName);
+            
+            if (layerNumber == -1)
+                return;
+
+            gameObject.layer = layerNumber;
+        }
+
+        private void SetGroundLayerMask(int layerIndex)
+        {
+            var groundLayerName = $"Ground_{layerIndex}";
+            var groundLayerNumber = LayerMask.NameToLayer(groundLayerName);
+            
+            if (groundLayerNumber == -1)
+                return;
+
+            _groundLayerMask = 1 << groundLayerNumber;
+        }
+
+        private void SetRigidbodyLayer(int layerIndex)
+        {
+            if (_rigidbody2D == null)
+                return;
+
+            var excludeLayers = new List<int>();
+
+            for (int i = 0; i < MAX_LAYER_INDEX; i++)
+            {
+                if (i != layerIndex)
+                {
+                    var enemyLayerName = $"EnemyLine_{i}";
+                    var enemyLayerNumber = LayerMask.NameToLayer(enemyLayerName);
+                    if (enemyLayerNumber != -1)
+                        excludeLayers.Add(enemyLayerNumber);
+                }
+            }
+
+            for (int i = 0; i < MAX_LAYER_INDEX; i++)
+            {
+                if (i != layerIndex)
+                {
+                    var groundLayerName = $"Ground_{i}";
+                    var groundLayerNumber = LayerMask.NameToLayer(groundLayerName);
+                    if (groundLayerNumber != -1)
+                        excludeLayers.Add(groundLayerNumber);
+                }
+            }
+
+            foreach (var excludeLayer in excludeLayers)
+            {
+                var currentLayer = gameObject.layer;
+                Physics2D.IgnoreLayerCollision(currentLayer, excludeLayer, true);
+            }
+        }
+
+        private void SetSpriteRendererOrder(int layerIndex)
+        {
+            var orderOffset = layerIndex * 10;
+            var spriteRenderers = GetComponentsInChildren<SpriteRenderer>();
+
+            foreach (var spriteRenderer in spriteRenderers)
+            {
+                var originalOrder = spriteRenderer.sortingOrder;
+                spriteRenderer.sortingOrder = originalOrder + (30 - orderOffset);
+            }
+        }
+        #endregion
+
         #region [State]
         public void ChangeState(EEnemyState state, Action doneCallBack)
         {
@@ -117,17 +222,15 @@ namespace Game
 
             switch (state)
             {
-                case EEnemyState.Idle: _coState = StartCoroutine(Co_IdleState()); break;
-                case EEnemyState.Jump: _coState = StartCoroutine(Co_JumpState()); break;
-                case EEnemyState.Attack: _coState = StartCoroutine(Co_AttackState()); break;
-                case EEnemyState.Hit: _coState = StartCoroutine(Co_HitState()); break;
-                case EEnemyState.Die: _coState = StartCoroutine(Co_DieState()); break;
+                case EEnemyState.Idle: _coState = StartCoroutine(Co_IdleState(doneCallBack)); break;
+                case EEnemyState.Jump: _coState = StartCoroutine(Co_JumpState(doneCallBack)); break;
+                case EEnemyState.Attack: _coState = StartCoroutine(Co_AttackState(doneCallBack)); break;
+                case EEnemyState.Hit: _coState = StartCoroutine(Co_HitState(doneCallBack)); break;
+                case EEnemyState.Die: _coState = StartCoroutine(Co_DieState(doneCallBack)); break;
             }
-
-            doneCallBack?.Invoke();
         }
 
-        protected virtual IEnumerator Co_IdleState()
+        protected virtual IEnumerator Co_IdleState(Action doneCallBack = null)
         {
             _animator.SetTrigger(ANIM_IDLE);
 
@@ -148,7 +251,7 @@ namespace Game
             _rigidbody2D.velocity = new Vector2(0, _rigidbody2D.velocity.y);
         }
 
-        protected virtual IEnumerator Co_JumpState()
+        protected virtual IEnumerator Co_JumpState(Action doneCallBack = null)
         {
             _isJumping = true;
             _jumpStartTime = Time.time;
@@ -230,17 +333,45 @@ namespace Game
             }
         }
 
-        protected virtual IEnumerator Co_AttackState()
+        protected virtual IEnumerator Co_AttackState(Action doneCallBack = null)
+        {
+            _animator.SetTrigger(ANIM_ATTACK);
+            
+            var attackDuration = 1.0f;
+            var elapsed = 0f;
+            var callbackInvoked = false;
+
+            while (_currState == EEnemyState.Attack && elapsed < attackDuration)
+            {
+                elapsed += Time.deltaTime;
+                
+                if (!callbackInvoked && elapsed >= attackDuration * 0.5f)
+                {
+                    doneCallBack?.Invoke();
+                    callbackInvoked = true;
+                }
+                
+                if (_rigidbody2D != null)
+                    _rigidbody2D.velocity = new Vector2(0f, _rigidbody2D.velocity.y);
+                
+                yield return null;
+            }
+            
+            if (_currState == EEnemyState.Attack)
+            {
+                _attackTime = Time.time;
+                _isAttackDelayed = true;
+                
+                ChangeState(EEnemyState.Idle, null);
+            }
+        }
+
+        protected virtual IEnumerator Co_HitState(Action doneCallBack = null)
         {
             yield return null;
         }
 
-        protected virtual IEnumerator Co_HitState()
-        {
-            yield return null;
-        }
-
-        protected virtual IEnumerator Co_DieState()
+        protected virtual IEnumerator Co_DieState(Action doneCallBack = null)
         {
             yield return null;
         }
@@ -275,6 +406,15 @@ namespace Game
             {
                 if (Time.time - _jumpTime >= JUMP_COOLDOWN_TIME)
                     _isJumpDelayed = false;
+            }
+        }
+
+        private void CheckAttackReady()
+        {
+            if (_isAttackDelayed)
+            {
+                if (Time.time - _attackTime >= _attackCooldown)
+                    _isAttackDelayed = false;
             }
         }
 
@@ -387,6 +527,9 @@ namespace Game
             {
                 if (hit.collider != null && hit.collider.gameObject != gameObject)
                 {
+                    if (IsGroundLayer(hit.collider.gameObject))
+                        continue;
+
                     _raycastHit = hit;
                     isFoundValidHit = true;
                     break;
@@ -401,11 +544,20 @@ namespace Game
                 var targetEnemyBase = hitObject.GetComponent<EnemyBase>();
                 if (targetEnemyBase != null)
                 {
-                    _hasObject = true;
-                    _colliderHeight = GetColliderHeight(hitObject);
+                    if (IsSameEnemyLayer(hitObject))
+                    {
+                        _hasObject = true;
+                        _colliderHeight = GetColliderHeight(hitObject);
 
-                    if (_currState == EEnemyState.Idle && _colliderHeight > 0f && !_isJumping && !_isJumpDelayed)
-                        ChangeState(EEnemyState.Jump, null);
+                        if (_currState == EEnemyState.Idle && _colliderHeight > 0f && !_isJumping && !_isJumpDelayed)
+                            ChangeState(EEnemyState.Jump, null);
+                    }
+                    else
+                    {
+                        _hasObject = false;
+                        _hasCapsuleCollider = false;
+                        _colliderHeight = 0f;
+                    }
                 }
                 else
                 {
@@ -420,6 +572,101 @@ namespace Game
                 _hasCapsuleCollider = false;
                 _colliderHeight = 0f;
             }
+        }
+
+        private bool IsSameEnemyLayer(GameObject targetObject)
+        {
+            var targetEnemy = targetObject.GetComponent<EnemyBase>();
+            if (targetEnemy == null)
+                return false;
+
+            var myLayer = gameObject.layer;
+            var targetLayer = targetObject.layer;
+
+            var isSameLayer = myLayer == targetLayer;
+            Debug.Log($"{gameObject.name}: IsSameEnemyLayer 체크 - {targetObject.name} (myLayer: {myLayer}, targetLayer: {targetLayer}, isSame: {isSameLayer})");
+            
+            return isSameLayer;
+        }
+
+        private bool IsEnemyLayer(GameObject targetObject)
+        {
+            var targetEnemy = targetObject.GetComponent<EnemyBase>();
+            if (targetEnemy == null)
+                return false;
+
+            var targetLayer = targetObject.layer;
+            var isEnemyLayer = targetLayer == LayerMask.NameToLayer("EnemyLine_0") ||
+                              targetLayer == LayerMask.NameToLayer("EnemyLine_1") ||
+                              targetLayer == LayerMask.NameToLayer("EnemyLine_2");
+
+            Debug.Log($"{gameObject.name} -> {targetObject.name}: isEnemyLayer = {isEnemyLayer} (layer: {targetLayer})");
+            return isEnemyLayer;
+        }
+
+        private void CheckAttackTarget()
+        {
+            var rayOrigin = new Vector2(transform.position.x, transform.position.y + _attackRaycastHeight);
+            
+            var angleRad = _attackRaycastAngle * Mathf.Deg2Rad;
+            var baseDirection = Vector2.left; 
+            var rayDirection = new Vector2(
+                baseDirection.x * Mathf.Cos(angleRad) - baseDirection.y * Mathf.Sin(angleRad),
+                baseDirection.x * Mathf.Sin(angleRad) + baseDirection.y * Mathf.Cos(angleRad)
+            );
+
+            RaycastHit2D[] hits = Physics2D.RaycastAll(rayOrigin, rayDirection, _attackRaycastRange);
+            _attackRaycastHit = new RaycastHit2D();
+
+            var isAttack = false;
+            var boxBase = default(BoxBase);
+            foreach (RaycastHit2D hit in hits)
+            {
+                if (hit.collider != null && hit.collider.gameObject != gameObject)
+                {
+                    if (IsEnemyLayer(hit.collider.gameObject))
+                        continue;
+
+                    if (IsGroundLayer(hit.collider.gameObject))
+                        continue;
+
+                    boxBase = hit.collider.gameObject.GetComponent<BoxBase>();
+                    if (boxBase != null)
+                    {
+                        _attackRaycastHit = hit;
+                        isAttack = true;
+                        Debug.Log($"{gameObject.name}: 공격 레이캐스트로 BoxBase 발견! - {hit.collider.gameObject.name} (각도: {_attackRaycastAngle}도)");
+                        break;
+                    }
+                }
+            }
+
+            if (isAttack)
+            {
+                _hasAttackTarget = true;
+                
+                if (_currState == EEnemyState.Idle && !_isJumping && !_isJumpDelayed && !_isAttackDelayed)
+                {
+                    ChangeState(EEnemyState.Attack, () => 
+                    {
+                        if (boxBase != null)
+                            boxBase.Hit(10f);
+                    });
+                }
+            }
+            else
+                _hasAttackTarget = false;
+        }
+
+        private bool IsGroundLayer(GameObject targetObject)
+        {
+            var targetLayer = targetObject.layer;
+            var layerName = LayerMask.LayerToName(targetLayer);
+            var isGroundLayerByMask = (_groundLayerMask.value & (1 << targetLayer)) != 0;
+            var isGroundLayerByName = layerName != null && layerName.StartsWith("Ground");
+            var isGroundLayer = isGroundLayerByMask || isGroundLayerByName;
+            
+            return isGroundLayer;
         }
         #endregion
     }
