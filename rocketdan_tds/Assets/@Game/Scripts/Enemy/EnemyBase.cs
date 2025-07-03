@@ -34,6 +34,7 @@ namespace Game
         [Header("4. 데미지 설정")]
         [SerializeField] protected float _hitKnockbackForce = 2.0f;
         [SerializeField] protected float _hitKnockbackDuration = 0.3f;
+        [SerializeField] private UI_DamageFx _damageFx = null;
 
         [Space(1.5f)]
         [Header("5. 공격 설정")]
@@ -781,6 +782,7 @@ namespace Game
 
         public void Hit(float damage)
         {
+            _damageFx.Show((int)damage);
             _currHp -= damage;
 
             StartWhiteEffect();
