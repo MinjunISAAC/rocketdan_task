@@ -1,6 +1,8 @@
 // ----- System
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
+
 
 // ----- Unity
 using UnityEngine;
@@ -56,14 +58,6 @@ namespace Game
                     gameObject.SetActive(false);
                 }
             }
-        }
-
-        // --------------------------------------------------
-        // Method - Normals
-        // --------------------------------------------------
-        public void SetPower(float power)
-        {
-            _power = power;
         }
     }
 }

@@ -167,15 +167,9 @@ namespace Game
                 PushEnemyBack(other.gameObject);
         }
 
-        protected virtual void OnDestroy()
-        {
-
-        }
-
         // --------------------------------------------------
         // Method - Normal
         // --------------------------------------------------
-
         #region [Spawn]
         public void Spawn(EEnemyType enemyType, int maxHealth, int layerIndex, Transform spawnPosition, Transform enemyParent)
         {
@@ -194,7 +188,6 @@ namespace Game
 
             transform.position = new Vector3(spawnPosition.position.x, spawnPosition.position.y, layerIndex);
             transform.rotation = spawnPosition.rotation;
-
             transform.SetParent(enemyParent);
         }
 
