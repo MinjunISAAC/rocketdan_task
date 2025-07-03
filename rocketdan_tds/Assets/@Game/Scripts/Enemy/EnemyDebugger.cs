@@ -143,7 +143,7 @@ namespace Game
                 var isGrounded = GetPrivateField<bool>("_isGrounded");
 
                 var groundRayOrigin = enemyPosition;
-                var groundRayDirection = new Vector3(-1f, -1f, 0f).normalized; // 왼쪽 아래 45도
+                var groundRayDirection = new Vector3(0f, -1f, 0f).normalized; // 왼쪽 아래 45도
                 var groundRayEnd = groundRayOrigin + groundRayDirection * groundCheckDistance;
 
                 Gizmos.color = isGrounded ? _groundColor : Color.gray;

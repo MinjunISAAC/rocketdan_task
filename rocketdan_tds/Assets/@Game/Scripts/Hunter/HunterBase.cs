@@ -18,6 +18,8 @@ namespace Game
         [SerializeField] private GameObject _OBJ_ShotArea = null;
         [SerializeField] private Transform _shotStartTrans = null;
 
+        [SerializeField] protected BulletBase[] _bulletSet = new BulletBase[3];
+        
         // --------------------------------------------------
         // Variables
         // --------------------------------------------------
@@ -39,6 +41,9 @@ namespace Game
         {
             if (_OBJ_ShotArea != null)
                 _OBJ_ShotArea.SetActive(false);
+            
+            // 불릿 초기화
+            InitializeBullets();
             
             ChangeState(EHunterState.Idle, null);
         }
@@ -108,12 +113,22 @@ namespace Game
         [SerializeField] private float _autoAimSpeed = 5f; // 회전 속도
         [SerializeField] private LayerMask _enemyLayerMask = -1; // Enemy 레이어 마스크
 
+        [Header("공격 설정")]
+        [SerializeField] private float _attackCooldown = 1.0f;
+        [SerializeField] private float _bulletSpeed = 5f; // 속도를 낮춤
+        [SerializeField] private float _bulletMaxDistance = 10f;
+        [SerializeField] private LayerMask _bulletHitLayerMask = -1; // 불릿이 맞을 레이어
+
         private List<ClickGizmoData> _clickGizmos = new List<ClickGizmoData>();
         private List<LineGizmoData> _lineGizmos = new List<LineGizmoData>();
 
         // 자동 조준 관련 변수
         private Transform _currentTarget = null;
         private bool _isAutoAiming = false;
+
+        // 공격 관련 변수
+        private float _lastAttackTime = 0f;
+        private bool _canAttack = true;
 
         [System.Serializable]
         private class ClickGizmoData
@@ -162,19 +177,22 @@ namespace Game
                 HandleAutoAim();
             }
 
-            // Idle 상태에서 적이 들어오면 AutoAttack으로 변경
+            // 공격 처리
+            HandleAttack();
+
+            // Idle 상태에서 타겟이 들어오면 AutoAttack으로 변경
             if (_currState == EHunterState.Idle && !Input.GetMouseButton(0))
             {
-                if (FindNearestEnemy() != null)
+                if (FindNearestTarget() != null)
                 {
                     ChangeState(EHunterState.AutoAttack, null);
                 }
             }
 
-            // AutoAttack 상태에서 적이 없어지면 Idle로 변경
+            // AutoAttack 상태에서 타겟이 없어지면 Idle로 변경
             if (_currState == EHunterState.AutoAttack && !Input.GetMouseButton(0))
             {
-                if (FindNearestEnemy() == null)
+                if (FindNearestTarget() == null)
                 {
                     ChangeState(EHunterState.Idle, null);
                 }
@@ -281,11 +299,11 @@ namespace Game
                 return;
             }
 
-            // 적이 있는지 확인
-            bool hasEnemy = FindNearestEnemy() != null;
+            // 타겟이 있는지 확인
+            bool hasTarget = FindNearestTarget() != null;
 
             // 상태 결정
-            if (hasEnemy)
+            if (hasTarget)
             {
                 ChangeState(EHunterState.AutoAttack, null);
             }
@@ -293,6 +311,177 @@ namespace Game
             {
                 ChangeState(EHunterState.Idle, null);
             }
+        }
+
+        private void HandleAttack()
+        {
+            if (!_canAttack)
+            {
+                if (Time.time - _lastAttackTime >= _attackCooldown)
+                    _canAttack = true;
+                else
+                    return;
+            }
+
+            if (_currState == EHunterState.Attack || _currState == EHunterState.AutoAttack)
+                FireBullets();
+        }
+
+        private void FireBullets()
+        {
+            if (_bulletSet == null || _bulletSet.Length == 0 || _shotStartTrans == null)
+                return;
+
+            _lastAttackTime = Time.time;
+            _canAttack = false;
+
+            var fireDirection = GetFireDirection();
+            for (int i = 0; i < _bulletSet.Length; i++)
+            {
+                if (_bulletSet[i] != null)
+                {
+                    var randomAngle = UnityEngine.Random.Range(-_raycastAngle / 2f, _raycastAngle / 2f);
+                    var bulletDirection = GetRotatedDirection(fireDirection, randomAngle);
+
+                    StartCoroutine(FireBullet(_bulletSet[i], bulletDirection));
+                }
+            }
+        }
+
+        private Vector3 GetFireDirection()
+        {
+            if (_currState == EHunterState.Attack)
+            {
+                var mousePosition = Input.mousePosition;
+                mousePosition.z = 10f;
+                
+                var worldPosition = Camera.main.ScreenToWorldPoint(mousePosition);
+                worldPosition.z = 0f;
+                
+                return (worldPosition - _shotStartTrans.position).normalized;
+            }
+            else if (_currState == EHunterState.AutoAttack && _currentTarget != null)
+                return (_currentTarget.position - _shotStartTrans.position).normalized;
+            else
+                return Vector3.left;
+        }
+
+        private Vector3 GetRotatedDirection(Vector3 baseDirection, float angle)
+        {
+            var angleRad = angle * Mathf.Deg2Rad;
+            var cos = Mathf.Cos(angleRad);
+            var sin = Mathf.Sin(angleRad);
+            
+            return new Vector3(
+                baseDirection.x * cos - baseDirection.y * sin,
+                baseDirection.x * sin + baseDirection.y * cos,
+                0f
+            );
+        }
+
+        private IEnumerator FireBullet(BulletBase bullet, Vector3 direction)
+        {
+            if (bullet == null || _shotStartTrans == null)
+                yield break;
+
+            bullet.transform.position = _shotStartTrans.position;
+            bullet.gameObject.SetActive(true);
+
+            var startPosition = bullet.transform.position;
+            var distanceTraveled = 0f;
+            var timeAlive = 0f;
+            var hasHitEnemy = false;
+
+            while (bullet.gameObject.activeInHierarchy && distanceTraveled < _bulletMaxDistance && !hasHitEnemy)
+            {
+                bullet.transform.position += direction * _bulletSpeed * Time.deltaTime;
+                distanceTraveled = Vector3.Distance(startPosition, bullet.transform.position);
+                timeAlive += Time.deltaTime;
+
+                if (CheckBulletHit(bullet.transform.position))
+                    break;
+
+                if (CheckEnemyCollision(bullet.transform.position))
+                    break;
+
+                yield return null;
+            }
+
+            bullet.gameObject.SetActive(false);
+            bullet.transform.position = _shotStartTrans.position;
+        }
+
+        private bool IsEnemyLineLayer(GameObject targetObject)
+        {
+            var targetLayer = targetObject.layer;
+            var isEnemyLineLayer = targetLayer == LayerMask.NameToLayer("EnemyLine_0") ||
+                                  targetLayer == LayerMask.NameToLayer("EnemyLine_1") ||
+                                  targetLayer == LayerMask.NameToLayer("EnemyLine_2");
+            
+            return isEnemyLineLayer;
+        }
+
+        private void InitializeBullets()
+        {
+            if (_bulletSet == null || _bulletSet.Length == 0)
+                return;
+
+            for (int i = 0; i < _bulletSet.Length; i++)
+            {
+                if (_bulletSet[i] != null)
+                {
+                    _bulletSet[i].gameObject.SetActive(false);
+                    if (_shotStartTrans != null)
+                        _bulletSet[i].transform.position = _shotStartTrans.position;
+                }
+            }
+        }
+
+        private bool CheckBulletHit(Vector3 bulletPosition)
+        {
+            Collider2D[] hits = Physics2D.OverlapCircleAll(bulletPosition, 0.05f, _bulletHitLayerMask);
+            
+            foreach (Collider2D hit in hits)
+            {
+                if (hit != null && hit.gameObject != gameObject)
+                {
+                    if (hit.gameObject.GetComponent<BulletBase>() != null)
+                        continue;
+                        
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool CheckEnemyCollision(Vector3 bulletPosition)
+        {
+            Collider2D[] hits = Physics2D.OverlapCircleAll(bulletPosition, 0.1f);
+            
+            foreach (Collider2D hit in hits)
+            {
+                if (hit != null && hit.gameObject != gameObject)
+                {
+                    var targetLayer = hit.gameObject.layer;
+                    var isEnemyLineLayer = targetLayer == LayerMask.NameToLayer("EnemyLine_0") ||
+                                          targetLayer == LayerMask.NameToLayer("EnemyLine_1") ||
+                                          targetLayer == LayerMask.NameToLayer("EnemyLine_2");
+
+                    if (isEnemyLineLayer)
+                    {
+                        var enemy = hit.gameObject.GetComponent<EnemyBase>();
+                        if (enemy != null)
+                        {
+                            enemy.Hit(_bulletSet[0].Power); // 첫 번째 불릿의 파워 사용
+                            Debug.Log($"불릿 Enemy 충돌: {enemy.name}");
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
         }
 
         private void OnDrawGizmos()
@@ -380,7 +569,7 @@ namespace Game
                 // 현재 타겟이 없거나 타겟이 사라졌으면 새로운 타겟 찾기
                 if (_currentTarget == null || !IsTargetValid(_currentTarget))
                 {
-                    _currentTarget = FindNearestEnemy();
+                    _currentTarget = FindNearestTarget();
                 }
 
                 // 타겟이 있으면 자동 조준
@@ -401,7 +590,7 @@ namespace Game
             }
         }
 
-        private Transform FindNearestEnemy()
+        private Transform FindNearestTarget()
         {
             // Circle Collider 2D의 반지름 가져오기
             CircleCollider2D circleCollider = GetComponent<CircleCollider2D>();
@@ -411,27 +600,31 @@ namespace Game
             float detectionRadius = circleCollider.radius * Mathf.Max(transform.localScale.x, transform.localScale.y);
             Vector3 center = transform.position;
 
-            // 주변의 EnemyBase 찾기
-            Collider2D[] colliders = Physics2D.OverlapCircleAll(center, detectionRadius, _enemyLayerMask);
+            // 주변의 타겟 찾기 (EnemyLine 레이어들만)
+            Collider2D[] colliders = Physics2D.OverlapCircleAll(center, detectionRadius);
             
-            Transform nearestEnemy = null;
+            Transform nearestTarget = null;
             float nearestDistance = float.MaxValue;
 
             foreach (Collider2D collider in colliders)
             {
-                EnemyBase enemy = collider.GetComponent<EnemyBase>();
-                if (enemy != null)
+                // 자기 자신은 제외
+                if (collider.gameObject == gameObject)
+                    continue;
+
+                // EnemyLine 레이어들만 타겟으로 설정
+                if (!IsEnemyLineLayer(collider.gameObject))
+                    continue;
+
+                float distance = Vector3.Distance(center, collider.transform.position);
+                if (distance < nearestDistance)
                 {
-                    float distance = Vector3.Distance(center, collider.transform.position);
-                    if (distance < nearestDistance)
-                    {
-                        nearestDistance = distance;
-                        nearestEnemy = collider.transform;
-                    }
+                    nearestDistance = distance;
+                    nearestTarget = collider.transform;
                 }
             }
 
-            return nearestEnemy;
+            return nearestTarget;
         }
 
         private bool IsTargetValid(Transform target)
@@ -443,9 +636,8 @@ namespace Game
             if (target.gameObject == null)
                 return false;
 
-            // 타겟이 여전히 EnemyBase인지 확인
-            EnemyBase enemy = target.GetComponent<EnemyBase>();
-            if (enemy == null)
+            // EnemyLine 레이어들만 유효한 타겟
+            if (!IsEnemyLineLayer(target.gameObject))
                 return false;
 
             // Circle Collider 2D 범위 내에 있는지 확인

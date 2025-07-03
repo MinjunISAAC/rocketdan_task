@@ -42,7 +42,7 @@ namespace Game
         public void SpawnEnemy(int spawnLayer)
         {
             var enemy = Instantiate(_enemyPrefab, _spawnPoint.position, Quaternion.identity);
-            enemy.Spawn(EEnemyType.Zombie_0, spawnLayer, _spawnPoint, _enemyParent);
+            enemy.Spawn(EEnemyType.Zombie_0, 100, spawnLayer, _spawnPoint, _enemyParent);
         }
     }
 }
