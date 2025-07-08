@@ -54,6 +54,7 @@ namespace Game
         [Space(1.5f)]
         [Header("8. 고유 능력 옵션")]
         [SerializeField] private Slider _hpSlider = null;
+        [SerializeField] private Image _IMG_FillShadow = null;
 
         [Space(1.5f)]
         [Header("9. 레이 캐스트 설정")]
@@ -115,6 +116,10 @@ namespace Game
 
         private bool _isFirstGround = true;
 
+        // HP 슬라이더 그림자 애니메이션 관련
+        private Coroutine _coHpShadowAnimation = null;
+        private float _hpShadowAnimationDuration = 0.375f;
+
         // --------------------------------------------------
         // Properties
         // --------------------------------------------------
@@ -129,7 +134,7 @@ namespace Game
             ChangeState(EEnemyState.Idle, null);
         }
 
-        protected virtual void Update()
+        protected virtual void FixedUpdate() 
         {
             CheckForwardObject();
             CheckAttackTarget();
@@ -770,6 +775,10 @@ namespace Game
                 _hpSlider.maxValue = _maxHp;
                 _hpSlider.value = _currHp;
                 UpdateHpSliderVisibility();
+                
+                // 초기 HP 설정 시 그림자도 동기화
+                if (_IMG_FillShadow != null)
+                    _IMG_FillShadow.fillAmount = _hpSlider.value / _hpSlider.maxValue;
             }
         }
 
@@ -794,6 +803,9 @@ namespace Game
             {
                 _hpSlider.value = _currHp;
                 UpdateHpSliderVisibility();
+                
+                // HP 그림자 애니메이션 시작
+                StartHpShadowAnimation();
             }
         }
 
@@ -804,6 +816,51 @@ namespace Game
                 var shouldShow = _currHp > 0f && _currHp < _maxHp;
                 _hpSlider.gameObject.SetActive(shouldShow);
             }
+        }
+
+        private void StartHpShadowAnimation()
+        {
+            if (_IMG_FillShadow == null)
+                return;
+
+            if (_coHpShadowAnimation != null)
+                StopCoroutine(_coHpShadowAnimation);
+
+            _coHpShadowAnimation = StartCoroutine(Co_HpShadowAnimation());
+        }
+
+        private IEnumerator Co_HpShadowAnimation()
+        {
+            if (_IMG_FillShadow == null || _hpSlider == null)
+            {
+                Debug.LogWarning("HP Shadow Animation: _IMG_FillShadow or _hpSlider is null");
+                yield break;
+            }
+
+            var startFillAmount = _IMG_FillShadow.fillAmount;
+            var targetFillAmount = _hpSlider.value / _hpSlider.maxValue;
+            var elapsedTime = 0f;
+
+            Debug.Log($"HP Shadow Animation Start: {startFillAmount} -> {targetFillAmount}");
+
+            while (elapsedTime < _hpShadowAnimationDuration)
+            {
+                elapsedTime += Time.deltaTime;
+                var progress = elapsedTime / _hpShadowAnimationDuration;
+                
+                // 가속도를 주는 보간 함수 사용 (EaseInQuad)
+                var acceleratedProgress = progress * progress;
+                var currentFillAmount = Mathf.Lerp(startFillAmount, targetFillAmount, acceleratedProgress);
+                _IMG_FillShadow.fillAmount = currentFillAmount;
+
+                Debug.Log($"HP Shadow Animation Progress: {progress:F2}, FillAmount: {currentFillAmount:F2}");
+
+                yield return null;
+            }
+
+            _IMG_FillShadow.fillAmount = targetFillAmount;
+            Debug.Log($"HP Shadow Animation End: {_IMG_FillShadow.fillAmount}");
+            _coHpShadowAnimation = null;
         }
 
         private void StartKnockbackEffect()
