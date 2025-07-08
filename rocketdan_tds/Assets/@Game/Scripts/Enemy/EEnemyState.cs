@@ -1,12 +1,11 @@
-namespace Game
+namespace Game 
 {
     public enum EEnemyState
     {
         Unknown = 0,
-        Idle = 1,
-        Jump = 2,
+        Move = 1,
+        Overcome = 2,
         Attack = 3,
-        Hit = 4,
-        Die = 5,
+        Dead = 4,
     }
 }

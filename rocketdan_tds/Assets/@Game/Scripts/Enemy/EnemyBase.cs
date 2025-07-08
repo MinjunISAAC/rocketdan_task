@@ -1,11 +1,9 @@
 // ----- System
-using System;
 using System.Collections;
 using System.Collections.Generic;
 
 // ----- Unity
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace Game
 {
@@ -15,285 +13,138 @@ namespace Game
         // Components
         // --------------------------------------------------
         [Header("1. 물리 컴포넌트 그룹")]
-        [SerializeField] protected Rigidbody2D _rigidbody2D = null;
-        [SerializeField] protected Collider2D _myCollider = null;
+        [SerializeField] protected CapsuleCollider2D _collider2D = null;
+        [SerializeField] protected Rigidbody2D _rigidbody = null;
+        [SerializeField] protected CircleCollider2D _circleCollider2D = null;
 
         [Space(1.5f)]
-        [Header("2. 이동 설정")]
-        [SerializeField] protected float _idleMoveSpeed = 2.0f;
+        [Header("2. 이동 관련 변수")]
+        [SerializeField] protected float _moveSpeed = 2f;
 
         [Space(1.5f)]
-        [Header("3. 점프 설정")]
-        [SerializeField] protected float _jumpForce = 5.0f;
-        [SerializeField] protected float _jumpHorizontalSpeed = 2.0f;
-        [SerializeField] protected float _pushForce = 3.0f;
-        [SerializeField] protected LayerMask _groundLayerMask = -1;
-        [SerializeField] protected float _groundCheckDistance = 0.5f;
+        [Header("3. 레이캐스트 설정")]
+        [SerializeField] protected RaycastSettings _leftConfig = new RaycastSettings(1f, 0f, 0f, 0f);
+        [SerializeField] protected RaycastSettings _rightConfig = new RaycastSettings(1f, 0f, 0f, 0f);
+        [SerializeField] protected RaycastSettings _downConfig = new RaycastSettings(1f, 0f, 0f, 0f);
+        [SerializeField] private float _downRaycastOffset = 0.5f;
+        [SerializeField] protected RaycastSettings _upConfig = new RaycastSettings(1f, 0f, 0f, 0f);
+        [SerializeField] protected RaycastSettings _attackConfig = new RaycastSettings(1.5f, 0f, 0f, 0f);
 
         [Space(1.5f)]
-        [Header("4. 데미지 설정")]
-        [SerializeField] protected float _hitKnockbackForce = 2.0f;
-        [SerializeField] protected float _hitKnockbackDuration = 0.3f;
-        [SerializeField] private UI_DamageFx _damageFx = null;
-
-        [Space(1.5f)]
-        [Header("5. 공격 설정")]
-        [SerializeField] protected float _attackCooldown = 2.0f;
-
-        [Space(1.5f)]
-        [Header("6. 애니메이션 설정")]
+        [Header("4. 애니메이션 설정")]
         [SerializeField] protected Animator _animator = null;
-
-        [Space(1.5f)]
-        [Header("7. 렌더링 그룹")]
-        [SerializeField] private List<SpriteRenderer> _spriteRendererList = null;
-        [SerializeField] private Material _whiteOutMaterial = null;
-        [SerializeField] private GameObject _model = null;
-        [SerializeField] private ParticleSystem _dieEffect = null;
-
-        [Space(1.5f)]
-        [Header("8. 고유 능력 옵션")]
-        [SerializeField] private Slider _hpSlider = null;
-
-        [Space(1.5f)]
-        [Header("9. 레이 캐스트 설정")]
-        [SerializeField] protected float _raycastRange = 0.75f;
-        [SerializeField] protected float _raycastHeight = 0.5f;
-        [SerializeField] protected float _attackRaycastRange = 1.0f;
-        [SerializeField] protected float _attackRaycastHeight = 0.3f;
-        [SerializeField] protected float _attackRaycastAngle = 0f;
 
         // --------------------------------------------------
         // Variables
         // --------------------------------------------------
-        protected const string ANIM_IDLE = "Idle";
-        protected const string ANIM_JUMP = "Jump";
-        protected const string ANIM_ATTACK = "Attack";
-        protected const string ANIM_HIT = "Hit";
-        protected const string ANIM_DIE = "Die";
+        private const string ANIM_MOVE = "Move";
+        private const string ANIM_OVERCOME = "Overcome";
+        private const string ANIM_ATTACK = "Attack";
+        private const string ANIM_DEAD = "Dead";
+        private const float OVERCOME_DELAY = 1f;
+        private const float LANDING_TIMEOUT = 3f;
+        private const float ATTACK_INTERVAL = 1f;
+        private const float DOWN_FORCE = 8f;
 
-        protected const float JUMP_COOLDOWN_TIME = 1f;
-        protected const int MAX_LAYER_INDEX = 3;
-
-        protected float _maxHp = 100f;
-        protected float _currHp = 100f;
-
-        protected EEnemyType _enemyType = EEnemyType.Unknown;
-        protected int _layerIndex = 0;
-
-        protected EEnemyState _currState = EEnemyState.Unknown;
-        protected EEnemyState _prevState = EEnemyState.Unknown;
+        [SerializeField] protected EEnemyState _currState = EEnemyState.Unknown;
+        [SerializeField] protected EEnemyState _prevState = EEnemyState.Unknown;
 
         protected Coroutine _coState = null;
 
-        protected RaycastHit2D _raycastHit;
-        protected bool _hasObject = false;
-        protected bool _hasCapsuleCollider = false;
-        protected float _colliderHeight = 0f;
+        private float _overcomeDelayTimer = -1f;
+        private float _landingTimeoutTimer = -1f;
 
-        protected RaycastHit2D _attackRaycastHit;
-        protected bool _hasAttackTarget = false;
+        private int _layerValue = 0;
 
-        protected bool _isJumping = false;
-        protected float _jumpStartTime = 0f;
-        protected float _jumpCurrentHeight = 0f;
+        // 타겟팅 변수들
+        [SerializeField] private EnemyBase _leftTarget = null;
+        [SerializeField] private EnemyBase _rightTarget = null;
+        [SerializeField] private GameObject _downTarget = null;
+        [SerializeField] private EnemyBase _upTarget = null;
+        [SerializeField] private BoxBase _attackTarget = null;
 
-        protected bool _isGrounded = false;
-
-        protected float _jumpTime = 0f;
-        protected bool _isJumpDelayed = false;
-
-        protected float _attackTime = 0f;
-        protected bool _isAttackDelayed = false;
-
-        protected Coroutine _coWhiteEffect = null;
-        protected List<Material> _originalMaterialList = new List<Material>();
-        protected float _fadeInDuration = 0.1f;
-        protected float _fadeOutDuration = 0.3f;
-
-        protected Coroutine _coKnockBack = null;
-
-        private bool _isFirstGround = true;
+        // --------------------------------------------------
+        // Enums
+        // --------------------------------------------------
+        public enum RaycastType
+        {
+            Unknown = 0,
+            Left = 0,
+            Right = 1,
+            Up = 2,
+            Down = 3,
+            Attack = 4,
+        }
 
         // --------------------------------------------------
         // Properties
         // --------------------------------------------------
-        public EEnemyState CurrentState => _currState;
+        public EEnemyState State { get; private set; } = EEnemyState.Unknown;
+        public CapsuleCollider2D Collider => _collider2D;
+        public Rigidbody2D Rigidbody => _rigidbody;
+        public EnemyBase RightTarget => _rightTarget;
 
         // --------------------------------------------------
-        // Method - Events
+        // Methods - Event
         // --------------------------------------------------
-        // ----- 사용 중
+        protected virtual void Awake() { BindComponents(); }
+
         protected virtual void Start()
         {
-            ChangeState(EEnemyState.Idle, null);
+            ChangeState(EEnemyState.Move);
         }
 
-        protected virtual void Update()
+        protected virtual void FixedUpdate()
         {
-            CheckForwardObject();
-            CheckAttackTarget();
-            CheckJumpReady();
-            CheckAttackReady();
-        }
+            UpdateTarget<EnemyBase>(RaycastType.Left, ref _leftTarget);
+            UpdateTarget<EnemyBase>(RaycastType.Right, ref _rightTarget);
+            UpdateTarget<EnemyBase>(RaycastType.Up, ref _upTarget);
+            UpdateDownTarget();
+            UpdateAttackTarget();
 
-        protected virtual void OnDisable()
-        {
-            if (_currState == EEnemyState.Jump)
+            if (_currState == EEnemyState.Attack && _upTarget != null && _downTarget != null)
             {
-                _jumpTime = Time.time;
-                _isJumpDelayed = true;
-                _isJumping = false;
+                var currentPos = transform.position;
+                var targetPos = currentPos + Vector3.right * 0.15f;
+                var newPos = Vector3.Lerp(currentPos, targetPos, Time.fixedDeltaTime * 2f);
+                transform.position = newPos;
+
+                if (Vector3.Distance(currentPos, targetPos) < 0.01f)
+                    ChangeState(EEnemyState.Move);
             }
-        }
-
-        protected virtual void OnTriggerEnter2D(Collider2D other)
-        {
-            if (other.gameObject == gameObject)
-                return;
-
-            var enemyBase = other.gameObject.GetComponent<EnemyBase>();
-            if (enemyBase != null && IsSameEnemyLayer(other.gameObject) && _currState != EEnemyState.Jump)
-                PushEnemyBack(other.gameObject);
-        }
-
-        protected virtual void OnTriggerStay2D(Collider2D other)
-        {
-            if (other.gameObject == gameObject)
-                return;
-
-            var enemyBase = other.gameObject.GetComponent<EnemyBase>();
-            if (enemyBase != null && IsSameEnemyLayer(other.gameObject) && _currState != EEnemyState.Jump)
-                PushEnemyBack(other.gameObject);
         }
 
         // --------------------------------------------------
-        // Method - Normal
+        // Methods - Bind Group
         // --------------------------------------------------
-        #region [Spawn]
-        public void Spawn(EEnemyType enemyType, int maxHealth, int layerIndex, Transform spawnPosition, Transform enemyParent)
+        protected virtual void BindComponents()
         {
-            _enemyType = enemyType;
-            _layerIndex = layerIndex;
-
-            _maxHp = maxHealth;
-            _currHp = _maxHp;
-
-            SetObjectLayer(layerIndex);
-            SetGroundLayerMask(layerIndex);
-            SetRigidbodyLayer(layerIndex);
-            SetColliderPhysics();
-            SetSpriteRendererOrder(layerIndex);
-            SetHp();
-
-            transform.position = new Vector3(spawnPosition.position.x, spawnPosition.position.y, layerIndex);
-            transform.rotation = spawnPosition.rotation;
-            transform.SetParent(enemyParent);
-        }
-
-        private void SetObjectLayer(int layerIndex)
-        {
-            var layerName = $"EnemyLine_{layerIndex}";
-            var layerNumber = LayerMask.NameToLayer(layerName);
-
-            if (layerNumber == -1)
-                return;
-
-            gameObject.layer = layerNumber;
-        }
-
-        private void SetGroundLayerMask(int layerIndex)
-        {
-            var groundLayerName = $"Ground_{layerIndex}";
-            var groundLayerNumber = LayerMask.NameToLayer(groundLayerName);
-
-            if (groundLayerNumber == -1)
-                return;
-
-            _groundLayerMask = 1 << groundLayerNumber;
-        }
-
-        private void SetRigidbodyLayer(int layerIndex)
-        {
-            if (_rigidbody2D == null)
-                return;
-
-            var excludeLayers = new List<int>();
-
-            for (int i = 0; i < MAX_LAYER_INDEX; i++)
+            if (_rigidbody == null)
             {
-                if (i != layerIndex)
-                {
-                    var enemyLayerName = $"EnemyLine_{i}";
-                    var enemyLayerNumber = LayerMask.NameToLayer(enemyLayerName);
-                    if (enemyLayerNumber != -1)
-                        excludeLayers.Add(enemyLayerNumber);
-                }
+                if (TryGetComponent(out Rigidbody2D rigidbody))
+                    _rigidbody = rigidbody;
             }
 
-            for (int i = 0; i < MAX_LAYER_INDEX; i++)
+            if (_collider2D == null)
             {
-                if (i != layerIndex)
-                {
-                    var groundLayerName = $"Ground_{i}";
-                    var groundLayerNumber = LayerMask.NameToLayer(groundLayerName);
-                    if (groundLayerNumber != -1)
-                        excludeLayers.Add(groundLayerNumber);
-                }
+                if (TryGetComponent(out CapsuleCollider2D collider2D))
+                    _collider2D = collider2D;
             }
 
-            foreach (var excludeLayer in excludeLayers)
+            if (_circleCollider2D == null)
             {
-                var currentLayer = gameObject.layer;
-                Physics2D.IgnoreLayerCollision(currentLayer, excludeLayer, true);
+                if (TryGetComponent(out CircleCollider2D circleCollider2D))
+                    _circleCollider2D = circleCollider2D;
             }
         }
 
-        private void SetSpriteRendererOrder(int layerIndex)
-        {
-            var orderOffset = layerIndex * 10;
-            var spriteRenderers = GetComponentsInChildren<SpriteRenderer>();
-
-            foreach (var spriteRenderer in spriteRenderers)
-            {
-                var originalOrder = spriteRenderer.sortingOrder;
-                spriteRenderer.sortingOrder = originalOrder + (30 - orderOffset);
-            }
-        }
-
-        private void SetColliderPhysics()
-        {
-            if (_myCollider == null)
-                return;
-
-            if (_myCollider is BoxCollider2D boxCollider)
-                boxCollider.usedByEffector = false;
-            else if (_myCollider is CapsuleCollider2D capsuleCollider)
-                capsuleCollider.usedByEffector = false;
-            else if (_myCollider is CircleCollider2D circleCollider)
-                circleCollider.usedByEffector = false;
-
-            if (_rigidbody2D != null)
-            {
-                var physicsMaterial = new PhysicsMaterial2D("EnemySuperSlippery");
-                physicsMaterial.friction = 0.15f;
-                _rigidbody2D.sharedMaterial = physicsMaterial;
-            }
-        }
-        #endregion
-
-        #region [State]
-        public void ChangeState(EEnemyState state, Action doneCallBack)
+        // --------------------------------------------------
+        // Methods - State Group
+        // --------------------------------------------------
+        public virtual void ChangeState(EEnemyState state)
         {
             if (_currState == state)
                 return;
-
-            if (_currState == EEnemyState.Jump && state != EEnemyState.Jump)
-            {
-                _jumpTime = Time.time;
-                _isJumpDelayed = true;
-                _isJumping = false;
-            }
 
             if (_coState != null)
             {
@@ -301,606 +152,490 @@ namespace Game
                 _coState = null;
             }
 
+            StopAllCoroutines();
+            _landingTimeoutTimer = -1f;
+
             _prevState = _currState;
             _currState = state;
 
             switch (state)
             {
-                case EEnemyState.Idle: _coState = StartCoroutine(Co_IdleState(doneCallBack)); break;
-                case EEnemyState.Jump: _coState = StartCoroutine(Co_JumpState(doneCallBack)); break;
-                case EEnemyState.Attack: _coState = StartCoroutine(Co_AttackState(doneCallBack)); break;
-                case EEnemyState.Hit: _coState = StartCoroutine(Co_HitState(doneCallBack)); break;
-                case EEnemyState.Die: _coState = StartCoroutine(Co_DieState(doneCallBack)); break;
+                case EEnemyState.Move: _coState = StartCoroutine(Co_Move()); break;
+                case EEnemyState.Overcome: _coState = StartCoroutine(Co_Overcome()); break;
+                case EEnemyState.Attack: _coState = StartCoroutine(Co_Attack()); break;
+                case EEnemyState.Dead: _coState = StartCoroutine(Co_Dead()); break;
+                default: break;
             }
         }
 
-        protected virtual IEnumerator Co_IdleState(Action doneCallBack = null)
+        protected virtual IEnumerator Co_Move()
         {
-            _animator.SetTrigger(ANIM_IDLE);
+            _animator.SetTrigger(ANIM_MOVE);
 
-            _isJumping = false;
-            _jumpStartTime = 0f;
-            _jumpCurrentHeight = 0f;
-            _isGrounded = false;
-            _raycastHit = new RaycastHit2D();
-            _hasObject = false;
-            _hasCapsuleCollider = false;
-
-            while (_currState == EEnemyState.Idle)
+            while (_currState == EEnemyState.Move)
             {
-                var moveDirection = Vector2.left;
-                var newVelocity = new Vector2(moveDirection.x * _idleMoveSpeed, _rigidbody2D.velocity.y);
-                _rigidbody2D.velocity = newVelocity;
+                var currentVelocity = _rigidbody.velocity;
+                currentVelocity.x = -_moveSpeed;
+                _rigidbody.velocity = currentVelocity;
 
-                if (!CheckGround() && !_isFirstGround)
-                {
-                    var pushForce = new Vector2(1f, 10f);
-                    _rigidbody2D.AddForce(pushForce, ForceMode2D.Impulse);
-                    _isFirstGround = false;
-                }
-
-                yield return null;
+                yield return new WaitForFixedUpdate();
             }
         }
 
-        protected virtual IEnumerator Co_JumpState(Action doneCallBack = null)
+        protected virtual IEnumerator Co_Overcome()
         {
-            _isJumping = true;
-            _jumpStartTime = Time.time;
-            _isGrounded = false;
+            _animator.SetTrigger(ANIM_OVERCOME);
 
-            if (_rigidbody2D != null && _rigidbody2D.gravityScale <= 0)
-                _rigidbody2D.gravityScale = 1f;
-
-            _animator.SetTrigger(ANIM_JUMP);
-
-            var jumpElapsed = 0f;
-            var maxJumpTime = 10.0f;
-            var objectDisappeared = false;
-            var originalHasObject = _hasObject;
-            var originalRaycastHit = _raycastHit;
-
-            while (_currState == EEnemyState.Jump && jumpElapsed < maxJumpTime && !objectDisappeared)
+            var moveDis = 0f;
+            if (_leftTarget != null)
             {
-                jumpElapsed += Time.deltaTime;
+                var targetCollider = _leftTarget.Collider;
+                if (targetCollider != null)
+                    moveDis = (targetCollider.size.y + targetCollider.size.x);
+            }
 
-                if (_rigidbody2D != null)
-                    _rigidbody2D.velocity = new Vector2(0f, GetJumpForce() * 0.75f);
+            if (_rightTarget != null || _upTarget != null)
+            {
+                _overcomeDelayTimer = Time.time + OVERCOME_DELAY;
+                _rigidbody.velocity = new Vector2(_rigidbody.velocity.x, -_moveSpeed * 2f);
+                yield return new WaitForFixedUpdate();
+                ChangeState(EEnemyState.Move);
+                yield break;
+            }
 
-                _isGrounded = CheckGround();
+            if (_downTarget == null)
+            {
+                _overcomeDelayTimer = Time.time + OVERCOME_DELAY;
+                _rigidbody.velocity = new Vector2(_rigidbody.velocity.x, -_moveSpeed * 2f);
+                yield return new WaitForFixedUpdate();
+                ChangeState(EEnemyState.Move);
+            }
 
-                if (originalHasObject && originalRaycastHit.collider != null)
+            var targetPos = (Vector2)transform.position + Vector2.up * moveDis;
+            var startTime = Time.time;
+            var moveDuration = 1.5f;
+            var jumpDir = new Vector2(-1 * _leftTarget.Collider.size.x, _leftTarget.Collider.size.x).normalized;
+            while (_currState == EEnemyState.Overcome)
+            {
+                var elapsedTime = Time.time - startTime;
+                var progress = elapsedTime / moveDuration;
+
+                if (progress < 1f)
                 {
-                    var rayOrigin = new Vector2(transform.position.x, transform.position.y + _raycastHeight);
-                    var rayDirection = Vector2.left;
-                    var hits = Physics2D.RaycastAll(rayOrigin, rayDirection, _raycastRange);
-                    var foundObject = false;
-
-                    foreach (var hit in hits)
-                    {
-                        if (hit.collider != null && hit.collider.gameObject != gameObject)
-                        {
-                            var targetEnemyBase = hit.collider.gameObject.GetComponent<EnemyBase>();
-                            if (targetEnemyBase != null && IsSameEnemyLayer(hit.collider.gameObject))
-                            {
-                                foundObject = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (!foundObject)
-                    {
-                        objectDisappeared = true;
-                        break;
-                    }
+                    var newPos = Vector2.Lerp((Vector2)transform.position, targetPos, progress);
+                    _rigidbody.MovePosition(newPos);
                 }
-                else if (!originalHasObject)
+                else
+                    break;
+
+                if (_leftTarget == null)
                 {
-                    objectDisappeared = true;
+                    _overcomeDelayTimer = Time.time + OVERCOME_DELAY;
+                    yield return new WaitForFixedUpdate();
+                    ChangeState(EEnemyState.Move);
                     break;
                 }
 
-                yield return null;
-            }
-
-            if (objectDisappeared && _currState == EEnemyState.Jump)
-            {
-                if (_rigidbody2D != null)
-                    _rigidbody2D.velocity = new Vector2(-_jumpHorizontalSpeed * 4f, _rigidbody2D.velocity.y * 0.75f);
-            }
-
-            if (_currState == EEnemyState.Jump)
-            {
-                _jumpTime = Time.time;
-                _isJumpDelayed = true;
-                _isJumping = false;
-                _jumpStartTime = 0f;
-                _jumpCurrentHeight = 0f;
-                _colliderHeight = 0f;
-                _isGrounded = false;
-
-                _raycastHit = new RaycastHit2D();
-                _hasObject = false;
-                _hasCapsuleCollider = false;
-
-                if (_rigidbody2D != null)
-                    _rigidbody2D.velocity = new Vector2(-_idleMoveSpeed, _rigidbody2D.velocity.y);
-
-                ChangeState(EEnemyState.Idle, null);
-            }
-        }
-
-        protected virtual IEnumerator Co_AttackState(Action doneCallBack = null)
-        {
-            _animator.SetTrigger(ANIM_ATTACK);
-
-            var attackDuration = 1.0f;
-            var elapsed = 0f;
-            var callbackInvoked = false;
-
-            while (_currState == EEnemyState.Attack && elapsed < attackDuration)
-            {
-                elapsed += Time.deltaTime;
-
-                if (!callbackInvoked && elapsed >= attackDuration * 0.5f)
+                if (_downTarget == null)
                 {
-                    doneCallBack?.Invoke();
-                    callbackInvoked = true;
+                    _overcomeDelayTimer = Time.time + OVERCOME_DELAY;
+                    yield return new WaitForFixedUpdate();
+                    ChangeState(EEnemyState.Move);
+                    break;
                 }
 
-                if (!CheckGround() && !_isFirstGround)
+                yield return new WaitForFixedUpdate();
+            }
+
+            _rigidbody.velocity = jumpDir * _moveSpeed * 2f;
+            _overcomeDelayTimer = Time.time + OVERCOME_DELAY;
+            _landingTimeoutTimer = Time.time + LANDING_TIMEOUT;
+
+            ChangeState(EEnemyState.Move);
+        }
+
+        protected virtual IEnumerator Co_Attack()
+        {
+            while (_currState == EEnemyState.Attack)
+            {
+                if (_attackTarget == null || !_attackTarget.IsAlive)
                 {
-                    var pushForce = new Vector2(1f, 10f);
-                    _rigidbody2D.AddForce(pushForce, ForceMode2D.Impulse);
-                    _isFirstGround = false;
+                    ChangeState(EEnemyState.Move);
+                    yield break;
                 }
 
-                yield return null;
-            }
+                var downEnemy = GetDownEnemyBase();
+                if (downEnemy != null)
+                    PushEnemyChain(downEnemy, 0);
 
-            if (_currState == EEnemyState.Attack)
-            {
-                _attackTime = Time.time;
-                _isAttackDelayed = true;
+                _animator.SetTrigger(ANIM_ATTACK);
+                if (_attackTarget != null)
+                    _attackTarget.Hit(10f);
 
-                ChangeState(EEnemyState.Idle, null);
-            }
-        }
+                var currentVelocity = _rigidbody.velocity;
+                currentVelocity.x = -_moveSpeed * 2f;
+                _rigidbody.velocity = currentVelocity;
 
-        protected virtual IEnumerator Co_HitState(Action doneCallBack = null)
-        {
-            _animator.SetTrigger(ANIM_HIT);
 
-            var hitDuration = 0.5f;
-            var elapsed = 0f;
-
-            while (_currState == EEnemyState.Hit && elapsed < hitDuration)
-            {
-                elapsed += Time.deltaTime;
-
-                if (_coKnockBack == null && _rigidbody2D != null)
-                    _rigidbody2D.velocity = new Vector2(-_idleMoveSpeed, _rigidbody2D.velocity.y);
-
-                yield return null;
-            }
-
-            if (_currState == EEnemyState.Hit)
-                ChangeState(EEnemyState.Idle, null);
-        }
-
-        protected virtual IEnumerator Co_DieState(Action doneCallBack = null)
-        {
-            _animator.SetTrigger(ANIM_DIE);
-
-            var dieDuration = 1.0f;
-            var elapsed = 0f;
-
-            if (_rigidbody2D != null)
-                _rigidbody2D.velocity = Vector2.zero;
-
-            _myCollider.enabled = false;
-            _model.gameObject.SetActive(false);
-            _dieEffect.Play();
-
-            while (_currState == EEnemyState.Die && elapsed < dieDuration)
-            {
-                elapsed += Time.deltaTime;
-                yield return null;
-            }
-
-            if (_currState == EEnemyState.Die)
-            {
-                _model.gameObject.SetActive(true);
-                _myCollider.enabled = true;
-                gameObject.SetActive(false);
-            }
-        }
-        #endregion
-
-        #region [Jump]
-        private bool CheckGround()
-        {
-            var rayOrigin = transform.position;
-            var diagonalRayDirection = new Vector2(-1f, -1f).normalized;
-            RaycastHit2D[] diagonalHits = Physics2D.RaycastAll(rayOrigin, diagonalRayDirection, _groundCheckDistance);
-
-            foreach (RaycastHit2D hit in diagonalHits)
-            {
-                if (hit.collider != null && hit.collider.gameObject != gameObject)
-                {
-                    var isGroundLayer = (_groundLayerMask.value & (1 << hit.collider.gameObject.layer)) != 0;
-                    if (isGroundLayer)
-                        return true;
-                }
-            }
-
-            return false;
-        }
-
-        private void CheckJumpReady()
-        {
-            if (_isJumpDelayed)
-            {
-                if (Time.time - _jumpTime >= JUMP_COOLDOWN_TIME)
-                    _isJumpDelayed = false;
+                yield return new WaitForSeconds(ATTACK_INTERVAL);
             }
         }
 
-        private void CheckAttackReady()
+        protected virtual IEnumerator Co_Dead()
         {
-            if (_isAttackDelayed)
+            _animator.SetTrigger(ANIM_DEAD);
+            yield return null;
+        }
+
+        // --------------------------------------------------
+        // Methods - Trigger Group
+        // --------------------------------------------------
+        protected virtual void OnTriggerEnter2D(Collider2D other)
+        {
+            var boxBase = other.GetComponent<BoxBase>();
+            if (boxBase != null && boxBase.IsAlive)
             {
-                if (Time.time - _attackTime >= _attackCooldown)
-                    _isAttackDelayed = false;
+                _attackTarget = boxBase;
+                if (_currState == EEnemyState.Move)
+                    ChangeState(EEnemyState.Attack);
             }
         }
 
-        private float GetColliderHeight(GameObject targetObject)
+        protected virtual void OnTriggerStay2D(Collider2D other)
         {
-            var capsuleCollider = targetObject.GetComponent<CapsuleCollider2D>();
-            if (capsuleCollider != null)
-                return capsuleCollider.size.y;
-
-            var boxCollider = targetObject.GetComponent<BoxCollider2D>();
-            if (boxCollider != null)
-                return boxCollider.size.y;
-
-            CircleCollider2D circleCollider = targetObject.GetComponent<CircleCollider2D>();
-            if (circleCollider != null)
-                return circleCollider.radius * 2f;
-
-            return 1f;
-        }
-
-        private float GetJumpForce()
-        {
-            if (!_hasObject || _raycastHit.collider == null)
-                return _jumpForce;
-
-            var targetObject = _raycastHit.collider.gameObject;
-            var targetColliderHeight = GetColliderHeight(targetObject);
-
-            if (targetColliderHeight > 0f)
+            var boxBase = other.GetComponent<BoxBase>();
+            if (boxBase != null && boxBase.IsAlive)
             {
-                var heightMultiplier = 1f + (targetColliderHeight - 1f) * 0.3f;
-                var calculatedForce = _jumpForce * heightMultiplier;
-                var minForce = _jumpForce * 0.5f;
-                var finalForce = Mathf.Max(calculatedForce, minForce);
+                if (_attackTarget != boxBase)
+                    _attackTarget = boxBase;
 
-                return finalForce;
-            }
-
-            return _jumpForce;
-        }
-
-        private void PushEnemyBack(GameObject targetEnemy)
-        {
-            var targetRigidbody = targetEnemy.GetComponent<Rigidbody2D>();
-            if (targetRigidbody != null)
-            {
-                var pushForce = new Vector2(0.35f, 0f);
-                targetRigidbody.AddForce(pushForce, ForceMode2D.Impulse);
+                if (_currState == EEnemyState.Move)
+                    ChangeState(EEnemyState.Attack);
             }
         }
-        #endregion
 
-        #region [Raycast]
-        private void CheckForwardObject()
+        protected virtual void OnTriggerExit2D(Collider2D other)
         {
-            var rayOrigin = new Vector2(transform.position.x, transform.position.y + _raycastHeight);
-            var rayDirection = Vector2.left;
+            var boxBase = other.GetComponent<BoxBase>();
+            if (boxBase != null && _attackTarget == boxBase)
+            {
+                _attackTarget = null;
+                if (_currState == EEnemyState.Attack)
+                    ChangeState(EEnemyState.Move);
+            }
+        }
 
-            RaycastHit2D[] hits = Physics2D.RaycastAll(rayOrigin, rayDirection, _raycastRange);
+        protected virtual void UpdateAttackTarget()
+        {
+            var setting = GetRaycastSetting(RaycastType.Attack);
+            var baseDirection = GetBaseDirection(RaycastType.Attack);
+            var origin = setting.GetOrigin(transform.position);
+            var direction = setting.GetDirection(baseDirection);
 
-            var isFoundValidHit = false;
-            var closestHit = new RaycastHit2D();
-            var closestDistance = float.MaxValue;
+            RaycastHit2D[] hits = Physics2D.RaycastAll(origin, direction, setting.distance);
 
+            BoxBase foundBox = null;
             foreach (RaycastHit2D hit in hits)
             {
-                if (hit.collider != null && hit.collider.gameObject != gameObject)
+                if (hit.collider.gameObject != gameObject)
                 {
-                    if (IsGroundLayer(hit.collider.gameObject))
-                        continue;
-
-                    var targetEnemyBase = hit.collider.gameObject.GetComponent<EnemyBase>();
-                    if (targetEnemyBase != null && IsSameEnemyLayer(hit.collider.gameObject))
-                    {
-                        var distance = Vector2.Distance(rayOrigin, hit.point);
-                        if (distance < closestDistance)
-                        {
-                            closestDistance = distance;
-                            closestHit = hit;
-                            isFoundValidHit = true;
-                        }
-                    }
+                    foundBox = hit.collider.GetComponent<BoxBase>();
+                    if (foundBox != null && foundBox.IsAlive)
+                        break;
                 }
             }
 
-            if (isFoundValidHit)
+            if (foundBox != null)
             {
-                _raycastHit = closestHit;
-                var hitObject = _raycastHit.collider.gameObject;
-                var targetEnemyBase = hitObject.GetComponent<EnemyBase>();
-
-                _hasObject = true;
-                _colliderHeight = GetColliderHeight(hitObject);
-
-                var canJump = _colliderHeight > 0f && !_isJumping && !_isJumpDelayed;
-                if (canJump)
+                if (_attackTarget != foundBox)
                 {
-                    if (_currState == EEnemyState.Idle)
-                        ChangeState(EEnemyState.Jump, null);
-                    else if (_currState == EEnemyState.Hit)
-                        ChangeState(EEnemyState.Jump, null);
+                    _attackTarget = foundBox;
+                    if (_currState == EEnemyState.Move)
+                        ChangeState(EEnemyState.Attack);
                 }
             }
             else
             {
-                // 적이 감지되지 않았을 때만 초기화 (겹쳐있을 때는 유지)
-                if (!_hasObject)
+                if (_attackTarget != null)
                 {
-                    _raycastHit = new RaycastHit2D();
-                    _hasCapsuleCollider = false;
-                    _colliderHeight = 0f;
+                    _attackTarget = null;
+                    if (_currState == EEnemyState.Attack)
+                        ChangeState(EEnemyState.Move);
                 }
+            }
+
+#if UNITY_EDITOR
+            setting.DrawRay(origin, direction, foundBox != null);
+#endif
+        }
+
+        private EnemyBase GetDownEnemyBase()
+        {
+            if (_downTarget != null)
+                return _downTarget.GetComponent<EnemyBase>();
+            return null;
+        }
+
+        private void PushEnemyChain(EnemyBase enemy, int depth)
+        {
+            if (enemy == null || depth > 10)
+                return;
+
+            StartCoroutine(Co_PushEnemy(enemy, depth));
+
+            var rightEnemy = enemy.RightTarget;
+            if (rightEnemy != null)
+                PushEnemyChain(rightEnemy, depth + 1);
+        }
+
+        private IEnumerator Co_PushEnemy(EnemyBase enemy, int depth)
+        {
+            var pushDistance = 0.5f - depth * 0.05f;
+            var pushDuration = 0.3f - depth * 0.02f;
+            var startPos = enemy.transform.position;
+            var targetPos = startPos + Vector3.right * pushDistance;
+            var elapsedTime = 0f;
+
+            while (elapsedTime < pushDuration)
+            {
+                elapsedTime += Time.fixedDeltaTime;
+                var progress = elapsedTime / pushDuration;
+                var newPos = Vector3.Lerp(startPos, targetPos, progress);
+                enemy.transform.position = newPos;
+                yield return new WaitForFixedUpdate();
+            }
+
+            enemy.transform.position = targetPos;
+        }
+
+        protected virtual IEnumerator Co_WaitForLanding()
+        {
+            while (Time.time < _landingTimeoutTimer)
+            {
+                if (_downTarget != null)
+                {
+                    _landingTimeoutTimer = -1f;
+                    yield break;
+                }
+
+                var currentVelocity = _rigidbody.velocity;
+                currentVelocity.y -= 9.8f * Time.fixedDeltaTime;
+                _rigidbody.velocity = currentVelocity;
+
+                yield return new WaitForFixedUpdate();
+            }
+
+            _landingTimeoutTimer = -1f;
+            ChangeState(EEnemyState.Move);
+        }
+
+        // --------------------------------------------------
+        // Methods - Raycast Group
+        // --------------------------------------------------
+        #region [Raycast Group]
+        protected virtual RaycastSettings GetRaycastSetting(RaycastType type)
+        {
+            switch (type)
+            {
+                case RaycastType.Left: return _leftConfig;
+                case RaycastType.Right: return _rightConfig;
+                case RaycastType.Up: return _upConfig;
+                case RaycastType.Down: return _downConfig;
+                case RaycastType.Attack: return _attackConfig;
+                default: return _leftConfig;
             }
         }
 
-        private bool IsSameEnemyLayer(GameObject targetObject)
+        protected virtual Vector2 GetBaseDirection(RaycastType type)
         {
-            var targetEnemy = targetObject.GetComponent<EnemyBase>();
-            if (targetEnemy == null)
-                return false;
-
-            var myLayer = gameObject.layer;
-            var targetLayer = targetObject.layer;
-            var isSameLayer = myLayer == targetLayer;
-
-            return isSameLayer;
+            switch (type)
+            {
+                case RaycastType.Left: return Vector2.left;
+                case RaycastType.Right: return Vector2.right;
+                case RaycastType.Up: return Vector2.up;
+                case RaycastType.Down: return Vector2.down;
+                case RaycastType.Attack: return Vector2.left;
+                default: return Vector2.left;
+            }
         }
 
-        private bool IsEnemyLayer(GameObject targetObject)
+        protected virtual RaycastHit2D CastRay(RaycastType type)
         {
-            var targetEnemy = targetObject.GetComponent<EnemyBase>();
-            if (targetEnemy == null)
-                return false;
+            var setting = GetRaycastSetting(type);
+            var baseDirection = GetBaseDirection(type);
 
-            var targetLayer = targetObject.layer;
-            var isEnemyLayer = targetLayer == LayerMask.NameToLayer("EnemyLine_0") ||
-                              targetLayer == LayerMask.NameToLayer("EnemyLine_1") ||
-                              targetLayer == LayerMask.NameToLayer("EnemyLine_2");
-
-            return isEnemyLayer;
+            return setting.PerformRaycast(transform.position, baseDirection, gameObject);
         }
 
-        private void CheckAttackTarget()
+        protected virtual void UpdateTarget<T>(RaycastType type, ref T targetVariable) where T : Component
         {
-            var rayOrigin = new Vector2(transform.position.x, transform.position.y + _attackRaycastHeight);
+            var setting = GetRaycastSetting(type);
+            var baseDirection = GetBaseDirection(type);
 
-            var angleRad = _attackRaycastAngle * Mathf.Deg2Rad;
-            var baseDirection = Vector2.left;
-            var rayDirection = new Vector2(
-                baseDirection.x * Mathf.Cos(angleRad) - baseDirection.y * Mathf.Sin(angleRad),
-                baseDirection.x * Mathf.Sin(angleRad) + baseDirection.y * Mathf.Cos(angleRad)
-            );
+            var origin = setting.GetOrigin(transform.position);
+            var direction = setting.GetDirection(baseDirection);
 
-            RaycastHit2D[] hits = Physics2D.RaycastAll(rayOrigin, rayDirection, _attackRaycastRange);
-            _attackRaycastHit = new RaycastHit2D();
+            RaycastHit2D[] hits = Physics2D.RaycastAll(origin, direction, setting.distance);
 
-            var isAttack = false;
-            var boxBase = default(BoxBase);
+            T foundComponent = null;
             foreach (RaycastHit2D hit in hits)
             {
-                if (hit.collider != null && hit.collider.gameObject != gameObject)
+                if (hit.collider.gameObject != gameObject)
                 {
-                    if (IsEnemyLayer(hit.collider.gameObject))
-                        continue;
+                    foundComponent = hit.collider.GetComponent<T>();
+                    if (foundComponent != null)
+                        break;
+                }
+            }
 
-                    if (IsGroundLayer(hit.collider.gameObject))
-                        continue;
+            if (foundComponent != null && targetVariable == null)
+            {
+                targetVariable = foundComponent;
 
-                    boxBase = hit.collider.gameObject.GetComponent<BoxBase>();
-                    if (boxBase != null)
+                if (foundComponent is EnemyBase)
+                {
+                    switch (type)
                     {
-                        _attackRaycastHit = hit;
-                        isAttack = true;
+                        case RaycastType.Left:
+                            if (Time.time >= _overcomeDelayTimer && _rightTarget == null && _upTarget == null)
+                                ChangeState(EEnemyState.Overcome);
+                            break;
+                        case RaycastType.Right:
+                            _rightTarget = foundComponent as EnemyBase;
+                            break;
+                        case RaycastType.Up:
+                            _upTarget = foundComponent as EnemyBase;
+                            break;
+                    }
+                }
+            }
+            else if (foundComponent != null && targetVariable != null)
+            {
+                if (foundComponent is EnemyBase)
+                {
+                    switch (type)
+                    {
+                        case RaycastType.Left:
+                            if (Time.time >= _overcomeDelayTimer && _rightTarget == null && _upTarget == null)
+                                ChangeState(EEnemyState.Overcome);
+                            break;
+                        case RaycastType.Right:
+                            _rightTarget = foundComponent as EnemyBase;
+                            break;
+                        case RaycastType.Up:
+                            _upTarget = foundComponent as EnemyBase;
+                            break;
+                    }
+                }
+            }
+            else if (foundComponent == null && targetVariable != null)
+            {
+                targetVariable = null;
+            }
+
+#if UNITY_EDITOR
+            setting.DrawRay(origin, direction, foundComponent != null);
+#endif
+        }
+
+        protected virtual void UpdateDownTarget()
+        {
+            if (_circleCollider2D == null)
+                return;
+
+            var circleCenter = (Vector2)transform.position + _circleCollider2D.offset;
+            var circleRadius = _circleCollider2D.radius;
+            var hitColliders = Physics2D.OverlapCircleAll(circleCenter, circleRadius);
+
+            GameObject foundObject = null;
+            foreach (var hitCollider in hitColliders)
+            {
+                if (hitCollider.gameObject != gameObject)
+                {
+                    var enemy = hitCollider.GetComponent<EnemyBase>();
+                    if (enemy != null)
+                    {
+                        foundObject = hitCollider.gameObject;
+                        break;
+                    }
+
+                    if (hitCollider.gameObject.layer == LayerMask.NameToLayer($"Ground_{_layerValue}"))
+                    {
+                        foundObject = hitCollider.gameObject;
                         break;
                     }
                 }
             }
 
-            if (isAttack)
+            if (foundObject != null && _downTarget == null)
+                _downTarget = foundObject;
+            else if (foundObject == null && _downTarget != null)
+                _downTarget = null;
+
+#if UNITY_EDITOR
+            if (_circleCollider2D != null)
             {
-                _hasAttackTarget = true;
-
-                if (_currState == EEnemyState.Idle && !_isJumping && !_isJumpDelayed && !_isAttackDelayed)
-                {
-                    ChangeState(EEnemyState.Attack, () =>
-                    {
-                        if (boxBase != null)
-                            boxBase.Hit(10f);
-                    });
-                }
+                var center = (Vector2)transform.position + _circleCollider2D.offset;
+                var radius = _circleCollider2D.radius;
+                var color = foundObject != null ? Color.red : Color.green;
+                Debug.DrawLine(center + Vector2.left * radius, center + Vector2.right * radius, color);
+                Debug.DrawLine(center + Vector2.up * radius, center + Vector2.down * radius, color);
             }
-            else
-                _hasAttackTarget = false;
-        }
-
-        private bool IsGroundLayer(GameObject targetObject)
-        {
-            var targetLayer = targetObject.layer;
-            var layerName = LayerMask.LayerToName(targetLayer);
-            var isGroundLayerByMask = (_groundLayerMask.value & (1 << targetLayer)) != 0;
-            var isGroundLayerByName = layerName != null && layerName.StartsWith("Ground");
-            var isGroundLayer = isGroundLayerByMask || isGroundLayerByName;
-
-            return isGroundLayer;
+#endif
         }
         #endregion
 
-        #region [Damage]
-        private void SetHp()
+        #region [Editor Group]
+#if UNITY_EDITOR
+        private void OnDrawGizmos()
         {
-            _currHp = _maxHp;
+            DrawRaycast(RaycastType.Left);
+            DrawRaycast(RaycastType.Right);
+            DrawRaycast(RaycastType.Up);
+            DrawRaycast(RaycastType.Attack);
+            DrawDownRaycasts();
+        }
 
-            if (_hpSlider != null)
+        private void DrawRaycast(RaycastType type)
+        {
+            var setting = GetRaycastSetting(type);
+            if (!setting.showDebug)
+                return;
+
+            var baseDirection = GetBaseDirection(type);
+            var origin = setting.GetOrigin(transform.position);
+            var dir = setting.GetDirection(baseDirection);
+
+            RaycastHit2D[] hits = Physics2D.RaycastAll(origin, dir, setting.distance);
+            var hasHit = false;
+
+            foreach (RaycastHit2D hit in hits)
             {
-                _hpSlider.maxValue = _maxHp;
-                _hpSlider.value = _currHp;
-                UpdateHpSliderVisibility();
-            }
-        }
-
-        public void Hit(float damage)
-        {
-            _damageFx.Show((int)damage);
-            _currHp -= damage;
-
-            StartWhiteEffect();
-            StartKnockbackEffect();
-            UpdateHpSlider();
-
-            if (_currHp <= 0)
-                ChangeState(EEnemyState.Die, null);
-            else
-                ChangeState(EEnemyState.Hit, null);
-        }
-
-        private void UpdateHpSlider()
-        {
-            if (_hpSlider != null)
-            {
-                _hpSlider.value = _currHp;
-                UpdateHpSliderVisibility();
-            }
-        }
-
-        private void UpdateHpSliderVisibility()
-        {
-            if (_hpSlider != null)
-            {
-                var shouldShow = _currHp > 0f && _currHp < _maxHp;
-                _hpSlider.gameObject.SetActive(shouldShow);
-            }
-        }
-
-        private void StartKnockbackEffect()
-        {
-            if (_coKnockBack != null)
-                StopCoroutine(_coKnockBack);
-
-            _coKnockBack = StartCoroutine(Co_KnockbackEffect());
-        }
-
-        private IEnumerator Co_KnockbackEffect()
-        {
-            if (_rigidbody2D == null)
-                yield break;
-
-            var knockbackVelocity = new Vector2(_hitKnockbackForce, 0f);
-            _rigidbody2D.velocity = knockbackVelocity;
-
-            var elapsedTime = 0f;
-            while (elapsedTime < _hitKnockbackDuration)
-            {
-                elapsedTime += Time.deltaTime;
-
-                var remainingTime = _hitKnockbackDuration - elapsedTime;
-                var knockbackMultiplier = remainingTime / _hitKnockbackDuration;
-                var currentKnockback = new Vector2(_hitKnockbackForce * knockbackMultiplier, 0f);
-
-                _rigidbody2D.velocity = currentKnockback;
-                yield return null;
-            }
-
-            _rigidbody2D.velocity = new Vector2(-_idleMoveSpeed, _rigidbody2D.velocity.y);
-
-            _coKnockBack = null;
-        }
-
-        private void StartWhiteEffect()
-        {
-            if (_coWhiteEffect != null)
-                StopCoroutine(_coWhiteEffect);
-
-            _coWhiteEffect = StartCoroutine(Co_WhiteEffect());
-        }
-
-        private IEnumerator Co_WhiteEffect()
-        {
-            _originalMaterialList.Clear();
-            foreach (var spriteRenderer in _spriteRendererList)
-            {
-                if (spriteRenderer != null)
+                if (hit.collider.gameObject != gameObject)
                 {
-                    _originalMaterialList.Add(spriteRenderer.material);
-                    spriteRenderer.material = _whiteOutMaterial;
+                    hasHit = true;
+                    break;
                 }
             }
 
-            yield return StartCoroutine(Co_FadeWhiteAmount(0f, 0.65f, _fadeInDuration));
-            yield return StartCoroutine(Co_FadeWhiteAmount(0.65f, 0f, _fadeOutDuration, () =>
-            {
-                for (int i = 0; i < _spriteRendererList.Count && i < _originalMaterialList.Count; i++)
-                {
-                    if (_spriteRendererList[i] != null)
-                        _spriteRendererList[i].material = _originalMaterialList[i];
-                }
-                _coWhiteEffect = null;
-            }));
+            setting.DrawRay(origin, dir, hasHit);
         }
 
-        private IEnumerator Co_FadeWhiteAmount(float startValue, float endValue, float duration, Action doneCallBack = null)
+        private void DrawDownRaycasts()
         {
-            var elapsedTime = 0f;
-
-            while (elapsedTime < duration)
+            // Circle Collider 2D 시각화
+            if (_circleCollider2D != null)
             {
-                elapsedTime += Time.deltaTime;
+                var center = (Vector2)transform.position + _circleCollider2D.offset;
+                var radius = _circleCollider2D.radius;
+                var color = Color.green;
 
-                var progress = elapsedTime / duration;
-                var smoothProgress = Mathf.SmoothStep(0f, 1f, progress);
-                var currentValue = Mathf.Lerp(startValue, endValue, smoothProgress);
-
-                foreach (var spriteRenderer in _spriteRendererList)
-                {
-                    if (spriteRenderer != null && spriteRenderer.material != null)
-                        spriteRenderer.material.SetFloat("_WhiteAmount", currentValue);
-                }
-
-                yield return null;
+                // 십자 모양으로 원형 영역 표시
+                Debug.DrawLine(center + Vector2.left * radius, center + Vector2.right * radius, color);
+                Debug.DrawLine(center + Vector2.up * radius, center + Vector2.down * radius, color);
             }
-
-            foreach (var spriteRenderer in _spriteRendererList)
-            {
-                if (spriteRenderer != null && spriteRenderer.material != null)
-                    spriteRenderer.material.SetFloat("_WhiteAmount", endValue);
-            }
-
-            doneCallBack?.Invoke();
         }
+#endif
         #endregion
     }
 }
